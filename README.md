@@ -1,7 +1,6 @@
 # ⚡ California Electric Load Forecasting & Grid Demand Planning Tool
 
-**Time series demand forecasting and grid scenario planning for electric utility operations**  
-Built by Sherriff Abdul-Hamid | poverty360.org
+**Time series demand forecasting and grid scenario planning for electric utility operations**
 
 ---
 
@@ -104,5 +103,5 @@ streamlit run app.py
 ## Author
 
 **Sherriff Abdul-Hamid**
-Development Economist · Data Scientist · Public Infrastructure Analytics
-poverty360.org | linkedin.com/in/abdul-hamid-sherriff-08583354
+Data Scientist · Energy Economist · Public Infrastructure Analytics
+[poverty360.org](https://poverty360.org) | [LinkedIn](https://www.linkedin.com/in/abdul-hamid-sherriff-08583354/) | [GitHub](https://github.com/S-ABDUL-AI)
