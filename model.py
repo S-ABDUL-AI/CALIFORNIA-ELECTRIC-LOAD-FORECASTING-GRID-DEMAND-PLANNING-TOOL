@@ -369,7 +369,6 @@ SARIMA MAPE: <strong>{sar['mape']:.1f}%</strong> · AIC: <strong>{sar['aic']:.1f
 <th>Reserve Margin</th></tr></thead><tbody>{rows}</tbody></table>
 <div class="note"><strong>Disclaimer:</strong> Synthetic calibrated data for planning demonstration only.
 Not for operational dispatch, CAISO market participation, or regulatory filing.</div>
-<p style="font-size:11px;color:{MUTED};">Sherriff Abdul-Hamid · poverty360.org</p>
 </body></html>"""
 
 
