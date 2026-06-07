@@ -1142,12 +1142,17 @@ with tab3:
                 line=dict(color=SCENARIO_COLORS[sname], width=2),
             ))
         fig_shape.update_layout(
-            **base_layout(height=280),
+            **base_layout(
+                height=280,
+                xaxis=dict(
+                    title="Hour of Day",
+                    tickvals=list(range(0, 24, 3)),
+                    ticktext=[f"{h:02d}:00" for h in range(0, 24, 3)],
+                    showgrid=False, zeroline=False, linecolor=RULE, showline=True,
+                ),
+            ),
             title=dict(text="Normalised Hourly Load Shape (Summer Weekday)",
                        font=dict(size=11, color=NAVY), x=0),
-            xaxis=dict(title="Hour of Day", tickvals=list(range(0,24,3)),
-                       ticktext=[f"{h:02d}:00" for h in range(0,24,3)],
-                       showgrid=False),
             yaxis_title="Load (normalised)",
             legend=dict(orientation="h", y=-0.30, x=0, font=dict(size=9)),
         )
@@ -1246,12 +1251,15 @@ with tab4:
         line=dict(color=MUTED, width=1.5, dash="dot"),
     ))
     fig_cap.update_layout(
-        **base_layout(height=340),
+        **base_layout(
+            height=340,
+            yaxis=dict(range=[0, CAPACITY_MW * 1.08], showgrid=True, gridcolor=RULE,
+                       zeroline=False, linecolor=RULE),
+        ),
         title=dict(text="Monthly Implied Peak Demand vs Grid Capacity (MW)",
                    font=dict(size=13, color=NAVY), x=0),
         xaxis_title="Month", yaxis_title="MW",
         legend=dict(orientation="h", y=-0.22, x=0),
-        yaxis=dict(range=[0, CAPACITY_MW * 1.08], showgrid=True, gridcolor=RULE),
     )
     st.plotly_chart(fig_cap, use_container_width=True)
 
