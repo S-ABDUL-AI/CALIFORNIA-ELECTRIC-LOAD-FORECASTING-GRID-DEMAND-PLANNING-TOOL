@@ -13,6 +13,9 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+import html
+from datetime import date
+from io import BytesIO
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -101,6 +104,32 @@ st.markdown(f"""
                 border-left:4px solid {AMBER}; border-radius:4px;
                 padding:8px 14px; font-size:11.5px; color:{AMBER};
                 margin-bottom:16px; }}
+  .disclaimer-box {{
+    background:#FFFBF0; border:1px solid #E8C97A; border-left:5px solid {AMBER};
+    border-radius:4px; padding:14px 18px; font-size:12px; color:{BODY};
+    line-height:1.65; margin-bottom:18px;
+  }}
+  .disclaimer-title {{
+    font-size:10px; font-weight:700; letter-spacing:1.5px;
+    color:{AMBER}; text-transform:uppercase; margin-bottom:6px;
+  }}
+  .insight-box {{
+    background:#F0F4FF; border-left:4px solid {NAVY}; border-radius:4px;
+    padding:14px 18px; font-size:13px; color:{BODY}; line-height:1.65;
+    margin:12px 0 18px;
+  }}
+  .insight-label {{
+    font-size:10px; font-weight:700; letter-spacing:1.5px;
+    color:{GOLD}; text-transform:uppercase; margin-bottom:6px;
+  }}
+  .report-card {{
+    background:{WHITE}; border:1px solid {RULE}; border-left:5px solid {GOLD};
+    border-radius:6px; padding:20px 24px; margin-bottom:22px;
+    box-shadow:0 2px 12px rgba(31,56,100,0.06);
+  }}
+  .report-title {{ font-size:16px; font-weight:700; color:{NAVY}; margin-bottom:4px; }}
+  .report-sub   {{ font-size:13px; color:{MUTED}; line-height:1.55; margin-bottom:12px; }}
+  .report-loc   {{ font-size:11.5px; color:{AMBER}; font-weight:600; margin-bottom:10px; }}
   .brief-navy {{ background:#F0F4FF; border-left:4px solid {NAVY};
                  border:1px solid #C4D0F5; border-radius:4px; padding:13px 16px; }}
   .brief-gold {{ background:#FFFBF0; border-left:4px solid {GOLD};
@@ -117,6 +146,9 @@ st.markdown(f"""
   .byline a   {{ color:{GOLD}; text-decoration:none; }}
   div[data-testid="stButton"] > button {{
     background:{NAVY}; color:#FFFFFF; border:none; border-radius:3px; font-weight:600;
+  }}
+  div[data-testid="stDownloadButton"] > button {{
+    background:{NAVY}; color:#FFFFFF; border:none; border-radius:4px; font-weight:600;
   }}
   .stSlider   {{ padding-top:4px !important; }}
 </style>
@@ -335,6 +367,160 @@ def base_layout(height=320, margin=None, **kw):
     )
 
 
+GRADIENT_LOAD  = [[0, NAVY], [0.5, GOLD], [1, RED]]
+GRADIENT_IMPACT = [[0, TEAL], [0.5, GOLD], [1, RED]]
+
+CAPACITY_MW    = 12_500
+RESERVE_TARGET = 0.15
+TRIGGER_MW     = CAPACITY_MW * (1 - RESERVE_TARGET)
+LOAD_FACTOR    = 0.72
+
+
+def gwh_to_peak_mw(gwh_monthly, n_days=30):
+    return (gwh_monthly * 1000) / (n_days * 24 * LOAD_FACTOR)
+
+
+def stress_months(peak_mw_arr):
+    return int(np.sum(peak_mw_arr > CAPACITY_MW * 0.95))
+
+
+def reserve_margin(peak_mw_arr):
+    return round((CAPACITY_MW / peak_mw_arr.max() - 1) * 100, 1)
+
+
+def _gradient_marker(values, colorscale):
+    arr = np.array(list(values), dtype=float)
+    if len(arr) == 0:
+        return dict(color=NAVY)
+    return dict(
+        color=arr,
+        colorscale=colorscale,
+        cmin=float(arr.min()),
+        cmax=float(arr.max()),
+        line=dict(width=0),
+    )
+
+
+def build_executive_narrative(sar, monthly_full, scenario_results, forecast_horizon):
+    peak_hist = int(monthly_full["peak_mw"].max())
+    yoy = round(
+        (monthly_full[monthly_full["year"] == 2023]["total_gwh"].sum()
+         / monthly_full[monthly_full["year"] == 2022]["total_gwh"].sum() - 1) * 100,
+        1,
+    )
+    base_peak_gwh = float(sar["fore_mean"].max())
+    base_peak_mw = float(gwh_to_peak_mw(sar["fore_mean"].values).max())
+    agg_peak_mw = float(gwh_to_peak_mw(scenario_results["Aggressive"].values).max())
+    base_stress = stress_months(gwh_to_peak_mw(sar["fore_mean"].values))
+    util_pct = round(base_peak_mw / CAPACITY_MW * 100, 1)
+    return (
+        f"Historical territory peak reached <strong>{peak_hist:,} MW</strong> with "
+        f"<strong>+{yoy}%</strong> load growth from 2022 to 2023. "
+        f"The SARIMA baseline projects a <strong>{base_peak_gwh:,.0f} GWh</strong> peak month "
+        f"(~<strong>{base_peak_mw:,.0f} MW</strong> implied peak, "
+        f"<strong>{util_pct:.0f}%</strong> of {CAPACITY_MW:,} MW capacity) over the next "
+        f"<strong>{forecast_horizon}</strong> months (MAPE <strong>{sar['mape']:.1f}%</strong>). "
+        f"Under the aggressive EV/solar scenario, implied peak rises to "
+        f"<strong>{agg_peak_mw:,.0f} MW</strong> with "
+        f"<strong>{base_stress}</strong> stress months above 95% utilisation — "
+        f"signalling capacity planning review if electrification outpaces forecasts."
+    )
+
+
+def _build_report_html(sar, monthly_full, scenario_results, meta):
+    base_mw = gwh_to_peak_mw(sar["fore_mean"].values)
+    rows = ""
+    for name in ["Conservative", "Base Case", "Aggressive"]:
+        peak = float(gwh_to_peak_mw(scenario_results[name].values).max())
+        net = (scenario_results[name].sum() / sar["fore_mean"].sum() - 1) * 100
+        rows += (
+            f"<tr><td>{html.escape(name)}</td>"
+            f"<td>{peak:,.0f} MW</td>"
+            f"<td>{net:+.1f}%</td>"
+            f"<td>{reserve_margin(gwh_to_peak_mw(scenario_results[name].values)):.1f}%</td></tr>"
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>CA Grid Load Forecast Brief</title>
+<style>
+  body {{ font-family:'Segoe UI',Arial,sans-serif; color:{BODY}; margin:40px; }}
+  h1 {{ color:{NAVY}; font-size:24px; }}
+  .meta {{ color:{MUTED}; font-size:13px; margin-bottom:20px; }}
+  table {{ width:100%; border-collapse:collapse; font-size:12.5px; margin:12px 0 20px; }}
+  th {{ background:{NAVY}; color:{GOLD}; text-align:left; padding:8px 10px; }}
+  td {{ border-bottom:1px solid {RULE}; padding:7px 10px; }}
+  .note {{ background:#FFFBF0; border-left:4px solid {GOLD}; padding:12px 14px;
+            font-size:12.5px; line-height:1.6; }}
+</style></head><body>
+<h1>California Grid Load Forecast — Executive Brief</h1>
+<p class="meta">Generated {date.today().isoformat()} · Horizon {meta['horizon']} months ·
+Zones: {html.escape(meta['zones'])} · Simulated SCE territory data</p>
+<p>Historical peak: <strong>{int(monthly_full['peak_mw'].max()):,} MW</strong> ·
+SARIMA MAPE: <strong>{sar['mape']:.1f}%</strong> · AIC: <strong>{sar['aic']:.1f}</strong></p>
+<h2>Scenario Peak Comparison</h2>
+<table><thead><tr><th>Scenario</th><th>Implied Peak</th><th>Net Load vs Base</th>
+<th>Reserve Margin</th></tr></thead><tbody>{rows}</tbody></table>
+<div class="note"><strong>Disclaimer:</strong> Synthetic calibrated data for planning demonstration only.
+Not for operational dispatch, CAISO market participation, or regulatory filing.</div>
+<p style="font-size:11px;color:{MUTED};">Sherriff Abdul-Hamid · poverty360.org</p>
+</body></html>"""
+
+
+def _build_report_pdf(sar, monthly_full, scenario_results, meta):
+    from reportlab.lib import colors as rl_colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas
+
+    buf = BytesIO()
+    w, h = letter
+    margin = 0.75 * inch
+    c = canvas.Canvas(buf, pagesize=letter)
+    y = h - margin
+
+    c.setFillColor(rl_colors.HexColor(NAVY))
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(margin, y, "CA Grid Load Forecast Brief")
+    y -= 22
+    c.setFillColor(rl_colors.HexColor(MUTED))
+    c.setFont("Helvetica", 10)
+    c.drawString(
+        margin, y,
+        f"Generated {date.today().isoformat()} · Horizon {meta['horizon']} mo · "
+        f"MAPE {sar['mape']:.1f}%",
+    )
+    y -= 26
+    c.setFont("Helvetica", 9.5)
+    c.drawString(
+        margin, y,
+        f"Historical peak: {int(monthly_full['peak_mw'].max()):,} MW · "
+        f"Capacity assumption: {CAPACITY_MW:,} MW",
+    )
+    y -= 20
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(rl_colors.HexColor(NAVY))
+    c.drawString(margin, y, "Scenario Peaks")
+    y -= 14
+    c.setFont("Helvetica", 9)
+    for name in ["Conservative", "Base Case", "Aggressive"]:
+        peak = float(gwh_to_peak_mw(scenario_results[name].values).max())
+        net = (scenario_results[name].sum() / sar["fore_mean"].sum() - 1) * 100
+        c.drawString(
+            margin, y,
+            f"{name}: {peak:,.0f} MW peak · {net:+.1f}% vs base · "
+            f"reserve {reserve_margin(gwh_to_peak_mw(scenario_results[name].values)):.1f}%",
+        )
+        y -= 12
+    c.setFillColor(rl_colors.HexColor(MUTED))
+    c.setFont("Helvetica", 8.5)
+    c.drawString(
+        margin, margin - 2,
+        "Decision-support demo · simulated SCE load · not for operational use.",
+    )
+    c.save()
+    return buf.getvalue()
+
+
 # ─────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────
@@ -353,6 +539,8 @@ with st.sidebar:
         Simulates and forecasts electricity load across SCE's four service territory
         zones using SARIMA time-series modelling, temperature-correlated demand curves,
         and scenario analysis for EV adoption and rooftop solar.
+
+        **Download:** use the **Executive Forecast Brief** card below the hero banner.
 
         **Data:** Calibrated synthetic load profiles (2021–2023), realistic for
         Southern California summer peaks, day-of-week patterns, and zone-level
@@ -397,6 +585,17 @@ monthly_tuple = tuple(monthly_full.itertuples(index=False, name=None))
 with st.spinner("Fitting SARIMA model…"):
     sar = fit_sarima_forecast(monthly_tuple, forecast_horizon)
 
+base_fore = sar["fore_mean"].copy()
+scenario_results = {
+    name: apply_scenario(base_fore, sar["fore_ci"], **params)
+    for name, params in SCENARIOS.items()
+}
+all_scenario_results = scenario_results.copy()
+report_meta = {
+    "horizon": forecast_horizon,
+    "zones": ", ".join(selected_zones) if selected_zones else "All zones",
+}
+
 # ─────────────────────────────────────────────────────────────
 # HERO
 # ─────────────────────────────────────────────────────────────
@@ -419,10 +618,59 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
-<div class="scope-box">
-  <strong>Data note:</strong> All load profiles are calibrated synthetic data approximating
-  SCE service territory conditions. Patterns are consistent with CAISO published annual
-  load data and SCE Integrated Resource Plan assumptions. Not for operational use.
+<div class="disclaimer-box">
+  <div class="disclaimer-title">Important disclaimer</div>
+  All load profiles in this tool are <strong>calibrated synthetic data</strong> approximating
+  SCE service territory conditions. Forecasts, scenario outputs, and capacity stress indicators
+  are <strong>decision-support analytics only</strong> — not official SCE operational data,
+  CAISO market forecasts, or CPUC regulatory filings. Do not use for grid dispatch,
+  resource adequacy compliance, or investment authorization without independent validation
+  against verified metering and planning models.
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="report-card">
+  <div class="report-title">📄 Executive Forecast Brief</div>
+  <div class="report-sub">One-page brief with SARIMA accuracy, scenario peak comparison,
+  and reserve margin analysis — ready for planning review.</div>
+  <div class="report-loc">↓ Download location: use the buttons below</div>
+</div>
+""", unsafe_allow_html=True)
+dl1, dl2, dl3 = st.columns(3)
+report_slug = f"ca_grid_forecast_{forecast_horizon}mo"
+with dl1:
+    try:
+        st.download_button(
+            "Download report (.pdf)",
+            data=_build_report_pdf(sar, monthly_full, scenario_results, report_meta),
+            file_name=f"{report_slug}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except ModuleNotFoundError:
+        st.caption("PDF requires reportlab on deploy.")
+with dl2:
+    st.download_button(
+        "Download report (.html)",
+        data=_build_report_html(sar, monthly_full, scenario_results, report_meta).encode("utf-8"),
+        file_name=f"{report_slug}.html",
+        mime="text/html",
+        use_container_width=True,
+    )
+with dl3:
+    st.download_button(
+        "Download monthly data (.csv)",
+        data=monthly_full.to_csv(index=False).encode("utf-8"),
+        file_name="sce_monthly_load.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+st.markdown(f"""
+<div class="insight-box">
+  <div class="insight-label">Executive insight</div>
+  {build_executive_narrative(sar, monthly_full, scenario_results, forecast_horizon)}
 </div>
 """, unsafe_allow_html=True)
 
@@ -498,9 +746,7 @@ with tab1:
         mon_avg["month_name"] = mon_avg["month"].apply(lambda x: month_names[x-1])
         fig2 = go.Figure(go.Bar(
             x=mon_avg["month_name"], y=mon_avg["total_gwh"],
-            marker_color=[RED if g==mon_avg["total_gwh"].max()
-                          else (AMBER if g>mon_avg["total_gwh"].quantile(0.75) else NAVY)
-                          for g in mon_avg["total_gwh"]],
+            marker=_gradient_marker(mon_avg["total_gwh"], GRADIENT_LOAD),
             text=[f"{v:,.0f}" for v in mon_avg["total_gwh"]],
             textposition="outside", textfont=dict(size=9),
         ))
@@ -772,16 +1018,10 @@ with tab3:
         ind_sh   = st.slider("Industrial Load Shift (%)", 0, 15, 8, 1,
                               help="% of industrial load shifted via demand response")
 
-    # Compute custom + three preset scenarios
-    base_fore = sar["fore_mean"].copy()
+    # Compute custom scenario on top of preset forecasts
     custom_fore = apply_scenario(base_fore, sar["fore_ci"],
                                   ev_rate, sol_rate, comm_g, ind_sh)
-
-    scenario_results = {
-        name: apply_scenario(base_fore, sar["fore_ci"], **params)
-        for name, params in SCENARIOS.items()
-    }
-    scenario_results["Custom"] = custom_fore
+    all_scenario_results = {**scenario_results, "Custom": custom_fore}
 
     # ── Scenario KPI row ────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -792,8 +1032,8 @@ with tab3:
         (s_col3, "Aggressive",   "kpi-warn"),
         (s_col4, "Custom",       ""),
     ]:
-        sc_total = scenario_results[sname].sum()
-        sc_peak  = scenario_results[sname].max()
+        sc_total = all_scenario_results[sname].sum()
+        sc_peak  = all_scenario_results[sname].max()
         base_tot = base_fore.sum()
         delta    = (sc_total / base_tot - 1) * 100
         with col_obj:
@@ -816,7 +1056,7 @@ with tab3:
         line=dict(color=MUTED, width=1.5, dash="dot"),
     ))
     for sname, color in SCENARIO_COLORS.items():
-        sc = scenario_results[sname]
+        sc = all_scenario_results[sname]
         fig_sc.add_trace(go.Scatter(
             x=sc.index, y=sc.values,
             mode="lines", name=sname,
@@ -927,7 +1167,7 @@ with tab3:
         (sc3, "Aggressive",   "brief-red",   RED),
     ]:
         p = SCENARIOS[sname]
-        net = (scenario_results[sname].sum() / base_fore.sum() - 1) * 100
+        net = (all_scenario_results[sname].sum() / base_fore.sum() - 1) * 100
         with col_obj:
             st.markdown(f"""
             <div class="{css}">
@@ -949,28 +1189,13 @@ with tab4:
     st.markdown('<div class="sec-lbl">Executive Planning Dashboard</div>', unsafe_allow_html=True)
     st.markdown('<div class="sec-ttl">Grid Capacity, Stress Indicators & Investment Triggers</div>', unsafe_allow_html=True)
 
-    # ── Capacity assumptions ────────────────────────────────
-    CAPACITY_MW   = 12_500   # SCE installed capacity (MW, approximate)
-    RESERVE_TARGET = 0.15    # 15% reserve margin target
-    TRIGGER_MW    = CAPACITY_MW * (1 - RESERVE_TARGET)  # ~10,625 MW
-
-    # Convert monthly GWh to approximate peak MW (using GWh/day / load_factor)
-    load_factor = 0.72   # typical utility load factor
-    def gwh_to_peak_mw(gwh_monthly, n_days=30):
-        return (gwh_monthly * 1000) / (n_days * 24 * load_factor)
-
+    # ── Capacity & peak conversion (module-level constants) ─
     fore_peak_mw_base = gwh_to_peak_mw(base_fore.values)
     fore_peak_mw = {
-        sname: gwh_to_peak_mw(scenario_results[sname].values)
-        for sname in ["Conservative","Base Case","Aggressive","Custom"]
+        sname: gwh_to_peak_mw(all_scenario_results[sname].values)
+        for sname in all_scenario_results
     }
-
-    # Grid stress: months where projected peak exceeds 95% of capacity
     STRESS_THRESH = CAPACITY_MW * 0.95
-    def stress_months(peak_mw_arr):
-        return int(np.sum(peak_mw_arr > STRESS_THRESH))
-    def reserve_margin(peak_mw_arr):
-        return round((CAPACITY_MW / peak_mw_arr.max() - 1) * 100, 1)
 
     # KPI row
     base_peak_mw = float(fore_peak_mw_base.max())
@@ -1175,6 +1400,7 @@ st.markdown(f"""
   <a href="https://share.streamlit.io/user/s-abdul-ai">Grid Investment Engine</a> &nbsp;·&nbsp;
   <a href="https://share.streamlit.io/user/s-abdul-ai">Oil Shock Transmission</a> &nbsp;·&nbsp;
   <a href="https://github.com/S-ABDUL-AI">GitHub</a> &nbsp;·&nbsp;
-  <a href="https://www.linkedin.com/in/abdul-hamid-sherriff-08583354/">LinkedIn</a>
+  <a href="https://www.linkedin.com/in/abdul-hamid-sherriff-08583354/">LinkedIn</a><br><br>
+  <strong style="color:{GOLD};">Disclaimer:</strong> Simulated load data and forecasts for decision-support demonstration only — not for operational or regulatory use.
 </div>
 """, unsafe_allow_html=True)
