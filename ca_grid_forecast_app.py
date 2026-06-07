@@ -26,8 +26,6 @@ try:
 except ImportError:
     SM_OK = False
 
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────
@@ -251,8 +249,8 @@ def generate_sce_data():
 
 
 @st.cache_data
-def aggregate_data(df_tuple):
-    df = pd.DataFrame(df_tuple)
+def aggregate_data(df_in: pd.DataFrame):
+    df = df_in.copy()
     # Daily total
     daily = (df.groupby(["date", "year", "month", "month_name", "dow", "dow_name"])
                .agg(total_mw=("load_mw", "sum"),
@@ -274,8 +272,10 @@ def aggregate_data(df_tuple):
 
 
 @st.cache_data
-def fit_sarima_forecast(monthly_tuple, horizon):
-    monthly = pd.DataFrame(monthly_tuple)
+def fit_sarima_forecast(monthly_in: pd.DataFrame, horizon):
+    from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+    monthly = monthly_in.copy()
     monthly["date"] = pd.to_datetime(monthly["date"])
     series = pd.Series(
         monthly["total_gwh"].values,
@@ -572,18 +572,13 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 df_raw   = generate_sce_data()
 df_filt  = df_raw[df_raw["zone"].isin(selected_zones)] if selected_zones else df_raw
-daily_df, monthly_df = aggregate_data(
-    tuple(df_filt.itertuples(index=False, name=None))
-)
+daily_df, monthly_df = aggregate_data(df_filt)
 
 # Monthly series for SARIMA (use full territory for consistency)
-_, monthly_full = aggregate_data(
-    tuple(df_raw.itertuples(index=False, name=None))
-)
-monthly_tuple = tuple(monthly_full.itertuples(index=False, name=None))
+_, monthly_full = aggregate_data(df_raw)
 
 with st.spinner("Fitting SARIMA model…"):
-    sar = fit_sarima_forecast(monthly_tuple, forecast_horizon)
+    sar = fit_sarima_forecast(monthly_full, forecast_horizon)
 
 base_fore = sar["fore_mean"].copy()
 scenario_results = {
