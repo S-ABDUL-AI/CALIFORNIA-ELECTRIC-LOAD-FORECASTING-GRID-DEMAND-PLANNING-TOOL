@@ -357,12 +357,18 @@ SCENARIO_COLORS = {"Conservative": TEAL, "Base Case": NAVY, "Aggressive": RED}
 # ─────────────────────────────────────────────────────────────
 def base_layout(height=320, margin=None, **kw):
     m = margin or dict(t=32, b=40, l=55, r=20)
+    xaxis = dict(showgrid=False, zeroline=False, linecolor=RULE, showline=True)
+    yaxis = dict(showgrid=True, gridcolor=RULE, zeroline=False, linecolor=RULE)
+    if "xaxis" in kw:
+        xaxis.update(kw.pop("xaxis"))
+    if "yaxis" in kw:
+        yaxis.update(kw.pop("yaxis"))
     return dict(
         paper_bgcolor=WHITE, plot_bgcolor=WHITE,
         height=height, margin=m,
         font=dict(family="Source Sans 3,sans-serif", color=BODY, size=11),
-        xaxis=dict(showgrid=False, zeroline=False, linecolor=RULE, showline=True),
-        yaxis=dict(showgrid=True,  gridcolor=RULE, zeroline=False, linecolor=RULE),
+        xaxis=xaxis,
+        yaxis=yaxis,
         **kw,
     )
 
