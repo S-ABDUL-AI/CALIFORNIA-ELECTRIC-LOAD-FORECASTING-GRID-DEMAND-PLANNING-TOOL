@@ -2,6 +2,8 @@
 
 **Time series demand forecasting and grid scenario planning for electric utility operations**
 
+[![Open App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://california-grid-demand-forecast-35hscpx2oxi3y7glsgkphj.streamlit.app/)
+
 ---
 
 ## Business Problem
@@ -92,11 +94,21 @@ In production deployment this model would ingest:
 ## Run Locally
 
 ```bash
-git clone https://github.com/S-ABDUL-AI/ca-grid-demand-forecast
+git clone https://github.com/S-ABDUL-AI/ca-grid-demand-forecast.git
 cd ca-grid-demand-forecast
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+---
+
+## Related Energy Portfolio Tools
+
+| Tool | Description | Live App |
+|------|-------------|----------|
+| California Grid Asset Risk Dashboard | Wildfire risk prediction and asset failure modeling for electric utility infrastructure | [Open App](https://california-grid-asset-risk-wildfire-vulnerability-dashboard-hm.streamlit.app/) |
+| Grid Investment Prioritization Engine | Benefit-cost optimization and capital portfolio planning for utility infrastructure investment | [Open App](https://grid-investment-prioritization-engine-hsyvnqi9iesad5met5pw7v.streamlit.app/) |
+| Oil Price Shock Transmission Dashboard | Interactive econometric tool exploring oil price shock transmission into Ghana public debt dynamics | [Open App](https://oil-price-shock-transmission-9xazdnfk5tnuaffap34ysp.streamlit.app/) |
 
 ---
 
